@@ -1,1 +1,2 @@
-# ME-Contikimac
+# ME-ContikiMAC
+Vasileios Kotsiou
