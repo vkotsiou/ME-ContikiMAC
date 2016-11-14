@@ -29,7 +29,7 @@
 #define NETSTACK_CONF_FRAMER  framer_802154
 #endif /* NETSTACK_CONF_FRAMER */
 
-// :) disable auto_ack
+// Disable auto_ack for ME-ContiMAC
 //#ifndef CC2420_CONF_AUTOACK
 //#define CC2420_CONF_AUTOACK              1
 //#endif /* CC2420_CONF_AUTOACK */
@@ -63,7 +63,7 @@
 /* Network setup for non-IPv6 (rime). */
 
 #define NETSTACK_CONF_NETWORK  my_driver
-//:) rime_driver
+//Set our drive as network Driver
 
 #define COLLECT_CONF_ANNOUNCEMENTS       1
 #define CXMAC_CONF_ANNOUNCEMENTS         0
@@ -78,7 +78,7 @@
 #define QUEUEBUF_CONF_NUM                32
 #endif /* QUEUEBUF_CONF_NUM */
 
-// :) 16 max 42
+// Increase the default size of queue
 
 #ifndef TIMESYNCH_CONF_ENABLED
 #define TIMESYNCH_CONF_ENABLED           0

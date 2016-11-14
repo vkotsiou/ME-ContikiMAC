@@ -109,13 +109,12 @@ LIST(neighbor_list);
 static void packet_sent(void *ptr, int status, int num_transmissions);
 static void transmit_packet_list(void *ptr);
 
-// :) My variables
+// ME-ContiMAC  Stats
 static long total_trans=0, total=0, total_collisions=0,total_ack=0;
 static void show_stats(){
 printf("Total: transmissions %ld acks %ld collisions %ld total %ld \n", total_trans, total_ack, total_collisions,total);
   
 }
-
 
 /*---------------------------------------------------------------------------*/
 static struct neighbor_queue *
@@ -204,7 +203,7 @@ packet_sent(void *ptr, int status, int num_transmissions)
   int num_tx;
   int backoff_transmissions;
   
-  // :) collect stats
+  // collecting  stats
   ++total;
   
   n = ptr;
@@ -421,10 +420,11 @@ init(void)
   memb_init(&metadata_memb);
   memb_init(&neighbor_memb);
   
-  //:)
+  // Showing stats at the end of the experiment
+  #define EXP_DURATION 4115
   
   static struct ctimer timer1;
-  ctimer_set(&timer1, CLOCK_SECOND *4115, show_stats, NULL);
+  ctimer_set(&timer1, CLOCK_SECOND *EXP_DURATION, show_stats, NULL);
 }
 /*---------------------------------------------------------------------------*/
 const struct mac_driver csma_driver = {

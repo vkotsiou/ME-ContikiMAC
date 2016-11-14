@@ -1,11 +1,6 @@
-// Modification Radio Driver for supporting ME-ContikiMAC
-// Fast HandOver
-// 01/05/2015
-// Vassilios Kotsiou
-       
 /*
  * Copyright (c) 2007, Swedish Institute of Computer Science
- * All rights reserved.      
+ * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,8 +33,9 @@
  * This code is almost device independent and should be easy to port.
  */
 
-#include <string.h>
+// Modification of Radio Driver for supporting ME-ContikiMAC
 
+#include <string.h>
 #include "contiki.h"
 
 #if defined(__AVR__)
@@ -143,12 +139,6 @@ int cc2420_off(void);
 
 static int cc2420_read(void *buf, unsigned short bufsize);
 
-
-//:) 
-static int cc2420_fast_read(void *buf, unsigned short bufsize);
-
-//:)
-
 static int cc2420_prepare(const void *data, unsigned short len);
 static int cc2420_transmit(unsigned short len);
 static int cc2420_send(const void *data, unsigned short len);
@@ -183,28 +173,13 @@ static int channel;
 
 /*---------------------------------------------------------------------------*/
 
-// :) My Variables ---------------------------------------
-static uint8_t buff1[3]={2,0,0};
-static uint8_t buff2[3]={3,0,0};
-static uint8_t buff3[3]={4,0,0};
-
-
+// ----- ME-ContikiMAC variables
+#define ANY_ADDR 99
+static uint8_t buff[3]={2,0,0};
 static int is_mobile=0;
 static int is_Any_BroadCast = 0;
 
-static int my_rank = 0;
-
-#define INTER_PACKET_INTERVAL              RTIMER_ARCH_SECOND / 800
-#define AFTER_ACK_DETECTECT_WAIT_TIME      RTIMER_ARCH_SECOND / 1500
-
-
-static int  RCV_burst=0, Notify=0, Receiving=0, ack_no=0;
-static void my_off(); 
-static void my_off1(); 
 // ------------------------------
-
-
-
 
 static void
 getrxdata(void *buf, int len)
@@ -320,11 +295,9 @@ set_txpower(uint8_t power)
 int
 cc2420_init(void)
 {
-  // :)
-  buff1[1]=rimeaddr_node_addr.u8[0] ;
-  buff2[1]=rimeaddr_node_addr.u8[0] ;
-  buff3[1]=rimeaddr_node_addr.u8[0] ;
-  
+  //Inserting Node's address to the ack packet
+  buff[1]=rimeaddr_node_addr.u8[0] ;
+
   uint16_t reg;
   {
     int s = splhigh();
@@ -692,60 +665,47 @@ PROCESS_THREAD(cc2420_process, ev, data)
 
     packetbuf_clear();
     packetbuf_set_attr(PACKETBUF_ATTR_TIMESTAMP, last_packet_timestamp);
-    
-  len = cc2420_read(packetbuf_dataptr(), PACKETBUF_SIZE);  //PACKETBUF_SIZE
+      len = cc2420_read(packetbuf_dataptr(), PACKETBUF_SIZE);
     
      packetbuf_set_datalen(len);
     
-// :) Software Ack
+// Implementation of Software Ack
 // packet[12]contains addr at frame[1]
-    // packet[13] Unibyte    
+// packet[13] Unibyte
 // packet[6] contains addr
- if (len > 0 )
+// is_Any_BroadCast counts ACKs collisions
+    if (len > 0 )
     {
       
 	 char *packet=(char *)packetbuf_dataptr();
-	
-	
-	 if (len>3) {
-	  if (len>3 &&(packet[6]==rimeaddr_node_addr.u8[0] ||                 // Unicast
-	    (is_mobile==0 && packet[6]==99 && (packet[13]==0 || packet[13]==rimeaddr_node_addr.u8[0])))) {	 // Anycast	Unicast second fiel		
-		
-	  	
 
-			if ( packet[6]==99 && packet[13]==0) {
-			   
-			  ++is_Any_BroadCast;
-			}else {
-				is_Any_BroadCast=0;
-			}
+	 if (len>3) { // No ACK packet
+	  if (len>3 &&(packet[6]==rimeaddr_node_addr.u8[0] ||                 // Unicast
+	    (is_mobile==0 && packet[6]==ANY_ADDR && (packet[13]==0 || packet[13]==rimeaddr_node_addr.u8[0])))) {	 // Anycast	Unicast second field
 		
+			if ( packet[6]==ANY_ADDR && packet[13]==0) {
+				 ++is_Any_BroadCast;
+			 }else {
+			    is_Any_BroadCast=0;
+			}
+
 			if ( packet[6]==99 && packet[13]==0 && is_Any_BroadCast>2 ) {  
 			 // printf("Radio: Collision %d\n",is_Any_BroadCast);
 			   cc2420_off();
 			   is_Any_BroadCast=0;
 			}else {
-			  NETSTACK_RADIO.send(buff1,3); 				// ACKing
+			  NETSTACK_RADIO.send(buff,3); 				// ACKing
 			}
 		
-		
-
-		
-	} else if (packet[6]==99 ) {
-	    ;
-	  //NETSTACK_RDC.input();
-	}
+	  } else if (packet[6]==ANY_ADDR ) {
+		  ;
+		}
 	}else {
 	  // Someone Sending ACK not for us
 	  cc2420_off();
 	}
-	
-	
-    NETSTACK_RDC.input();
+	 NETSTACK_RDC.input();
     }
-
-  
-    
 // ----------------------------------------------
 #if CC2420_TIMETABLE_PROFILING
     TIMETABLE_TIMESTAMP(cc2420_timetable, "end");
@@ -758,69 +718,6 @@ PROCESS_THREAD(cc2420_process, ev, data)
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
-static int
-cc2420_fast_read(void *buf, unsigned short bufsize)
-{
-  uint8_t footer[2];
-  uint8_t len;
-#if CC2420_CONF_CHECKSUM
-  uint16_t checksum;
-#endif /* CC2420_CONF_CHECKSUM */
-
-  if(!CC2420_FIFOP_IS_1) {
-    return 0;
-  }
-  /*  if(!pending) {
-    return 0;
-    }*/
-  
-  pending = 0;
-  
-  GET_LOCK();
-
-  cc2420_packets_read++;
-
-  getrxbyte(&len);
-//printf(" LEN 1 %d \n",len);
-  if(len > CC2420_MAX_PACKET_LEN) {
-    /* Oops, we must be out of sync. */
-    flushrx();
-    RIMESTATS_ADD(badsynch);
-    RELEASE_LOCK();
-    return 0;
-  }
-
-  if(len <= AUX_LEN) {
-    flushrx();
-    RIMESTATS_ADD(tooshort);
-    RELEASE_LOCK();
-    return 0;
-  }
-
-/*
-  if(len - AUX_LEN > bufsize) {
-    flushrx();
-    RIMESTATS_ADD(toolong);
-    RELEASE_LOCK();
-    return 0;
-  }
-*/
-if (len>20) {
-  len=20;
-}
-  getrxdata(buf, len - AUX_LEN);
-
-  RELEASE_LOCK();
-
-  if(len < AUX_LEN) {
-    return 0;
-  }
-//printf (" --- %d \n", len-AUX_LEN);
-  return len - AUX_LEN;
-}
-
-
-
 static int
 cc2420_read(void *buf, unsigned short bufsize)
 {
@@ -872,9 +769,7 @@ cc2420_read(void *buf, unsigned short bufsize)
   getrxdata(&checksum, CHECKSUM_LEN);
 #endif /* CC2420_CONF_CHECKSUM */
   getrxdata(footer, FOOTER_LEN);
-  
-  
-/*
+
 #if CC2420_CONF_CHECKSUM
   if(checksum != crc16_data(buf, len - AUX_LEN, 0)) {
     PRINTF("checksum failed 0x%04x != 0x%04x\n",
@@ -885,7 +780,7 @@ cc2420_read(void *buf, unsigned short bufsize)
      checksum == crc16_data(buf, len - AUX_LEN, 0)) {
 #else
   if(footer[1] & FOOTER1_CRC_OK) {
-#endif 
+#endif /* CC2420_CONF_CHECKSUM */
     cc2420_last_rssi = footer[0];
     cc2420_last_correlation = footer[1] & FOOTER1_CORRELATION;
 
@@ -899,8 +794,6 @@ cc2420_read(void *buf, unsigned short bufsize)
     RIMESTATS_ADD(badcrc);
     len = AUX_LEN;
   }
-*/
-
 
   if(CC2420_FIFOP_IS_1) {
     if(!CC2420_FIFO_IS_1) {
@@ -1051,51 +944,9 @@ cc2420_set_cca_threshold(int value)
 }
 /*---------------------------------------------------------------------------*/
 
-//  :) My Functions
+//  ME-ContiMAC Functions
 void set_mobile_radio()
 {
   is_mobile =1 ;
 }
 
-
-void set_RCV_burst(int flag) {
-  RCV_burst=flag;
-}
-void set_Notify(int flag) {
-  Notify=flag;
-  Receiving =flag; // na to dw
-  ack_no=0;
-  
-}
-
-void set_rank_radio(int r)
-{
-  my_rank =r;
-  buff1[2]=my_rank;
-  buff2[2]=my_rank;
-  buff3[2]=my_rank;
-}
-static void my_off() {
-  if (Receiving==0 ){
-    //printf("OFF Notify\n");
-    cc2420_off();
-    set_postpone_cycle(0);
-  }     
-}
-
-static void my_off1() {
-  if (Receiving==0 && Notify!=1 ){
-    //printf("OFF   ------- \n");
-    cc2420_off();
-    set_postpone_cycle(0);
-  }     
-}
-
-void my_flush() {
-flushrx();
-  
-}
-void reset_AnyBroadCast(){
-
-  is_Any_BroadCast=0;
-}

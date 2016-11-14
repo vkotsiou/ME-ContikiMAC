@@ -1,7 +1,3 @@
-// Modification for ME-ContikiMAC
-// Vassilios Kotsiou  
-// Phase ON
-
 /*
  * Copyright (c) 2010, Swedish Institute of Computer Science.
  * All rights reserved.
@@ -43,6 +39,8 @@
  *         Joakim Eriksson <joakime@sics.se>
  */
 
+// Modification for ME-ContikiMAC
+
 #include "contiki-conf.h"
 #include "dev/leds.h"
 #include "dev/radio.h"
@@ -62,7 +60,7 @@
 #ifdef CONTIKIMAC_CONF_WITH_PHASE_OPTIMIZATION
 #define WITH_PHASE_OPTIMIZATION      1 //CONTIKIMAC_CONF_WITH_PHASE_OPTIMIZATION
 #else /* CONTIKIMAC_CONF_WITH_PHASE_OPTIMIZATION */
-#define WITH_PHASE_OPTIMIZATION      1  /* :) 1 */
+#define WITH_PHASE_OPTIMIZATION      0  /* Disable PHASE OPTIMAZATION  */
 #endif /* CONTIKIMAC_CONF_WITH_PHASE_OPTIMIZATION */
 /* Two byte header added to allow recovery of padded short packets */
 /* Wireshark will not understand such packets at present */
@@ -137,7 +135,8 @@ static int we_are_receiving_burst = 0;
 #define CCA_COUNT_MAX                     3
 #endif
 
-// :) default value 2  
+// Setting 3 CCA for ME-ContikiMAC
+
 /* Before starting a transmission, Contikimac checks the availability
    of the channel with CCA_COUNT_MAX_TX consecutive CCAs */
 #ifdef CONTIKIMAC_CONF_CCA_COUNT_MAX_TX
@@ -201,7 +200,9 @@ static int we_are_receiving_burst = 0;
 #else
 #define INTER_PACKET_INTERVAL              RTIMER_ARCH_SECOND / 700
 #endif
-// :) default value 2500  -800
+// Increase inter_packet_interval
+
+//default value 2500  -800
 
 /* AFTER_ACK_DETECTECT_WAIT_TIME is the time       to wait after a potential
    ACK packet has been detected until we can read it out from the
@@ -214,9 +215,9 @@ static int we_are_receiving_burst = 0;
 
 /* MAX_PHASE_STROBE_TIME is the time that we transmit repeated packets
    to a neighbor for which we have a phase lock. */
-#define MAX_PHASE_STROBE_TIME              RTIMER_ARCH_SECOND / 30
+#define MAX_PHASE_STROBE_TIME              RTIMER_ARCH_SECOND / 60
 
-//:) 60
+
 /* SHORTEST_PACKET_SIZE is the shortest packet that ContikiMAC
    allows. Packets have to be a certain size to be able to be detected
    by two consecutive CCA checks, and here is where we define this
@@ -286,7 +287,7 @@ static struct timer broadcast_rate_timer;
 static int broadcast_rate_counter;
 #endif /* CONTIKIMAC_CONF_BROADCAST_RATE_LIMIT */
 
-// :) My Variables
+// ME-ContikiMAC Variables
 static int AnycastFather=0 ,prevAnycastFather=-1;
 static int SendAnyCast=0;
 static char *packet;
@@ -298,6 +299,7 @@ static unsigned int is_Any_BroadCast=0;
 
 #define DATA 7
 #define PROBE 9
+#define ANY_ADDR 99
 
 /*---------------------------------------------------------------------------*/
 static void
@@ -619,19 +621,17 @@ send_packet(mac_callback_t mac_callback, void *mac_callback_ptr,
 
   packetbuf_set_attr(PACKETBUF_ATTR_MAC_ACK, 1);
 
-// :) ------------------------------------
-    if (packetbuf_addr(PACKETBUF_ADDR_RECEIVER)->u8[0]==99) {
+// Prepare Data Packet for Anycast
+    if (packetbuf_addr(PACKETBUF_ADDR_RECEIVER)->u8[0]==ANY_ADDR) {
       SendAnyCast=1;
       if (AnycastFather!=0){
-	char *p=(char *)packetbuf_dataptr();
-	p[2]=AnycastFather ;
-	prevAnycastFather=AnycastFather;
-	
-	is_Any_BroadCast =0;
+    	  char *p=(char *)packetbuf_dataptr();
+    	  p[2]=AnycastFather ;
+    	  prevAnycastFather=AnycastFather;
+    	  is_Any_BroadCast =0;
 	 
       } else {
-      
-	is_Any_BroadCast=1;
+      	is_Any_BroadCast=1;
       }
     }
   
@@ -695,8 +695,6 @@ send_packet(mac_callback_t mac_callback, void *mac_callback_ptr,
   /* Remove the MAC-layer header since it will be recreated next time around. */
   packetbuf_hdr_remove(hdrlen);
 
-//:)
-if (SendAnyCast==0) {  
   
   if(!is_broadcast && !is_receiver_awake) {
 #if WITH_PHASE_OPTIMIZATION
@@ -711,9 +709,6 @@ if (SendAnyCast==0) {
     }
 #endif /* WITH_PHASE_OPTIMIZATION */ 
   }
-}
-
-
 
   /* By setting we_are_sending to one, we ensure that the rtimer
      powercycle interrupt do not interfere with us sending the packet. */
@@ -793,23 +788,23 @@ if (SendAnyCast==0) {
   t0 = RTIMER_NOW();
   seqno = packetbuf_attr(PACKETBUF_ATTR_MAC_SEQNO);
 
-  // :) start transmitting
+
   if ( SendAnyCast==1){
 	char *p=(char *)packetbuf_dataptr();
+
 	 uint8_t s1=p[3];
 	 uint8_t s2=p[4];
 	 my_seq =s2*256+s1;
+
 	 if (my_seq==prev_seq) {
 	   ++retrans;
 
 	 }else {
 	   retrans=0;
-
 	   prev_seq=my_seq;
 	 }
-
   }
-  // :)
+
   
   for(strobes = 0, collisions = 0;
       got_strobe_ack == 0 && collisions == 0 &&
@@ -866,32 +861,28 @@ if (SendAnyCast==0) {
         len = NETSTACK_RADIO.read(ackbuf, ACK_LEN);
         
       
-      // :)
-        if(len == ACK_LEN) { 				// :) && seqno == ackbuf[ACK_LEN - 1]
+      // Receive ACK update current father (ANYCAST)
+        if(len == ACK_LEN) { 				//  && seqno == ackbuf[ACK_LEN - 1]
           got_strobe_ack = 1;
           encounter_time = txtime;
-	  
-	  // :) 
-	    AnycastFather =ackbuf[1];
+
+	      AnycastFather =ackbuf[1];
 	
-	   // printf ("RCD %d %d %d  \n",rimeaddr_node_addr.u8[0],my_seq,retrans);
-	    if (retrans>0 && prevAnycastFather != AnycastFather) {
+	    if (retrans>0 && prevAnycastFather != AnycastFather) {  // print stats for handover
 	      printf("HVR %d %d %d , %d - %d\n",rimeaddr_node_addr.u8[0],my_seq,retrans,AnycastFather,prevAnycastFather);
 	    }
-	  // :) -----
+
           break;
         } else {
 
-	  if (is_Any_BroadCast!=1) {  //:)  No collision on first packet
-	    collisions++;
-	    if (is_mobile==1) {
-	    ;//  printf("Mobile Collision \n");
-	    }
-	  } else {
-	   
-	    ;//printf("ContikiMAC : Collision Indicator \n");
-	  }
-
+        	if (is_Any_BroadCast!=1) {  // No collision on first packet in Anycast Procedure
+        		collisions++;
+        		if (is_mobile==1) {
+        			;//  printf("Mobile Collision \n");
+        		}
+        	} else {
+        		;//printf("ContikiMAC : Collision Indicator \n");
+        	}
         }
       }
 #endif /* RDC_CONF_HARDWARE_ACK */
@@ -951,11 +942,11 @@ if (SendAnyCast==0) {
 #endif /* WITH_PHASE_OPTIMIZATION */
   }
 
-//:)
-if (SendAnyCast==1 && !got_strobe_ack) {
+
+if (SendAnyCast==1 && !got_strobe_ack) { // HandOver Stats
  printf("SVR %d %d %d , %d - %d\n",rimeaddr_node_addr.u8[0],my_seq,retrans,AnycastFather,prevAnycastFather);
 }
-//:)
+
   return ret;
 }
 /*---------------------------------------------------------------------------*/
@@ -976,10 +967,9 @@ qsend_list(mac_callback_t sent, void *ptr, struct rdc_buf_list *buf_list)
   int ret;
   int is_receiver_awake;
   
-  //:)----
   int pkt_num;
   pkt_num=0;
-  //:) ---
+
   
   if(curr == NULL) {
     return;
@@ -995,53 +985,48 @@ qsend_list(mac_callback_t sent, void *ptr, struct rdc_buf_list *buf_list)
   /* The receiver needs to be awoken before we send */
   is_receiver_awake = 0;
   
-  //:) Initialisation
+  // Initialisation ME-ContikiMAC
     packet = (char *)packetbuf_dataptr();
     packet[2]=0;
     AnycastFather=0;
-  // ---------    
+
 
   do { /* A loop sending a burst of packets from buf_list */
-   //:) ---------------------------------------------
-      ++pkt_num ;
+	  ++pkt_num ;
   
-      if (pkt_num==1 && is_mobile==1) {
-	//printf(" Entering \n");
-	queuebuf_to_packetbuf(curr->buf);
-	
-	packet=(char *)packetbuf_dataptr();
-	packet[0]=PROBE;
-	 
-	packetbuf_set_attr(PACKETBUF_ATTR_PENDING, 1); 
-	ret = send_packet(sent, ptr, curr, is_receiver_awake);
+      if (pkt_num==1 && is_mobile==1) {  // Sending a special data packet PROBE packet
 
-	if(ret != MAC_TX_DEFERRED) {
-	  //mac_call_sent_callback(sent, ptr, ret, 1);
-	}
-	if(ret == MAC_TX_OK) {
-	      is_receiver_awake = 1;      
-	      
-	} else {
-	   printf("Exit \n");
-	   mac_call_sent_callback(sent, ptr, ret, 1);
-	  return; 
-	  }
-	  
+    	  	queuebuf_to_packetbuf(curr->buf);
+	
+			packet=(char *)packetbuf_dataptr();
+			packet[0]=PROBE;
+
+			packetbuf_set_attr(PACKETBUF_ATTR_PENDING, 1);
+			ret = send_packet(sent, ptr, curr, is_receiver_awake);
+
+			if(ret != MAC_TX_DEFERRED) {
+			  //mac_call_sent_callback(sent, ptr, ret, 1);
+			}
+			if(ret == MAC_TX_OK) {
+				  is_receiver_awake = 1;
+
+			} else {
+
+			   mac_call_sent_callback(sent, ptr, ret, 1);
+			  return;
+			}
+
       }
-       ++pkt_num ;
-       if (pkt_num==2 && is_mobile==1) {
-	 packet[0]=DATA ;
-       }
-   //:) ----------------------------
+	 ++pkt_num ;
+	 if (pkt_num==2 && is_mobile==1) {
+		   packet[0]=DATA ;
+	 }
    
-   
-      next = list_item_next(curr);
+     next = list_item_next(curr);
 
     /* Prepare the packetbuf */
     queuebuf_to_packetbuf(curr->buf);
-    
-   
-	 
+
     if(next != NULL) {
       packetbuf_set_attr(PACKETBUF_ATTR_PENDING, 1);
     }
@@ -1106,13 +1091,10 @@ input_packet(void)
     packetbuf_hdrreduce(sizeof(struct hdr));
     packetbuf_set_datalen(chdr->len);
 #endif /* WITH_CONTIKIMAC_HEADER */
-    
-    // :)-------------
-   
+
      packet = (char *)packetbuf_dataptr();
 
-    if (!(packetbuf_addr(PACKETBUF_ADDR_RECEIVER)->u8[0] == 99 && (packet[2]==0 || packet[2]==rimeaddr_node_addr.u8[0]))) {
-
+    if (!(packetbuf_addr(PACKETBUF_ADDR_RECEIVER)->u8[0] == ANY_ADDR && (packet[2]==0 || packet[2]==rimeaddr_node_addr.u8[0]))) {
       off();
     }
     
@@ -1120,12 +1102,11 @@ input_packet(void)
        packetbuf_totlen() > 0 &&
        (rimeaddr_cmp(packetbuf_addr(PACKETBUF_ADDR_RECEIVER), &rimeaddr_node_addr) ||   // Unicast
         rimeaddr_cmp(packetbuf_addr(PACKETBUF_ADDR_RECEIVER), &rimeaddr_null)) || 	  // Broadcast
-	(is_mobile==0 && packetbuf_addr(PACKETBUF_ADDR_RECEIVER)->u8[0] == 99 && (packet[2]==0 || packet[2]==rimeaddr_node_addr.u8[0]))) {			//  :) Anycast
-   // ---------
-   
+	   (is_mobile==0 && packetbuf_addr(PACKETBUF_ADDR_RECEIVER)->u8[0] == ANY_ADDR && (packet[2]==0 || packet[2]==rimeaddr_node_addr.u8[0]))) {	//  Anycast
+
       /* This is a regular packet that is destined to us or to the
          broadcast address. */
-	//printf(" Entering -Contiki mac \n");
+
       /* If FRAME_PENDING is set, we are receiving a packets in a burst */
       we_are_receiving_burst = packetbuf_attr(PACKETBUF_ATTR_PENDING);
       if(we_are_receiving_burst) {
@@ -1141,8 +1122,7 @@ input_packet(void)
       /* Check for duplicate packet by comparing the sequence number
          of the incoming packet with the last few ones we saw. */
       
-      if (packet[0]!=PROBE)                                //:) gia na min kanei drop to packet
-
+      if (packet[0]!=PROBE)                                // Find duplicate packets only for data packets
       {
         int i;
         for(i = 0; i < MAX_SEQNOS; ++i) {
@@ -1259,7 +1239,7 @@ contikimac_debug_print(void)
 /*---------------------------------------------------------------------------*/
 
 
-//  :) My Functions
+//  ME-ContikiMAC functions
 void set_mobile_mac()
 {
   is_mobile =1 ;

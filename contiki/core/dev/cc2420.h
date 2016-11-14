@@ -215,13 +215,8 @@ void cc2420_set_cca_threshold(int value);
 
 #endif /* __CC2420_H__ */
   
-// :) My Functions
+// ME-ContikiMAC Functions
 void set_mobile_radio();
 
-
-void set_RCV_burst(int) ;
-void set_Notify(int);
-void set_rank_radio(int);
-void reset_AnyBroadCast();
 
 
