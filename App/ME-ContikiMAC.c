@@ -17,18 +17,13 @@
 
 #include "net/mac/contikimac.h"
 
-
 #include "net/mac/cxmac.h"
-//#endif
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-
-
-// Ta dika mou defines
-
+// Nodes characterization
 #define SINK 0
 #define STATIC 1
 #define MOBILE 2
@@ -40,19 +35,18 @@
 #define BROADCAST 1
 #define ANYCAST	2
 
-
+#define ANY_ADDR 99
 
 
 #define GRAND_DELAY 150   
-// 150
 #define MAX_PACKETS 1024
-#define CBR_RATE 120  
-//90
-#define FIX_CBR_RATE 30
+#define CBR_RATE 120      //  CBR for mobile nodes
+#define FIX_CBR_RATE 30   // CBR for static nodes
 
 #define BUFF_SIZE 25
 #define BURST_SIZE 32
 
+#define TX_POWER 7
 
 // ----- Debug -----------------
 
@@ -64,18 +58,19 @@
 #endif
 
 
-// --- George's defines
+
 // Message Type
 #define BEACON 1
 #define NOTIFGRAD 3    // gradient propagation
 #define RETGRAD 4
 #define CBR 5
+
 //To differentiate the LPL duration,in order to not starting every time when packet from burst arrives, but only from the first CBR emitting packet till the end
 #define CBR_NEG 6
 
-
+// Packet's Data types
 #define DATA 7  // node sends data to Sink
-#define ANY_ACK 8
+// #define ANY_ACK 8
 #define PROBE 9
 
 #define MAX_ID 99
@@ -98,8 +93,8 @@ static int My_Rank =100;
 static int my_ID;
 static unsigned int fatherID;
 static unsigned int seq_no = 0; // seq number of data 
-static unsigned int seq1=0;
-static unsigned int seq2=0;
+static unsigned int seq1=0;     // 1st byte of seq_no
+static unsigned int seq2=0;     // 2nf byte of seq_no
 static int cast_type=UNICAST;
 static int got_any_ack=0;
 static int burst_counter=0; // frame[3]
@@ -125,6 +120,7 @@ struct energy_time
 	long tx;
 	long rx;
 };
+
 //Energy consumed by the sensor
 static struct energy_time nrj_tab;
 static struct energy_time nrj_dif;
@@ -134,7 +130,6 @@ PROCESS(example_gradient_routing, "Example Gradient Routing");
 PROCESS(nrj_process, "Evaluates energy using Energest");
 
 AUTOSTART_PROCESSES(&example_gradient_routing, &nrj_process);
-//AUTOSTART_PROCESSES(&example_gradient_routing);
 /*---------------------------------------------------------------------------*/
 
 
@@ -148,37 +143,36 @@ PROCESS_THREAD(example_gradient_routing, ev, data)
   
     printf("Starting ................... \n");
     // seting power
-    cc2420_set_txpower(7);
+    cc2420_set_txpower(TX_POWER);
     //for having different seeds the nodes
     long t =(rtimer_arch_now());
-  //  printf(" Time %ld \n", t);
-  random_init(rimeaddr_node_addr.u8[0]* 5);
+    random_init(rimeaddr_node_addr.u8[0]* 5);
         
     my_ID=ID();
     
     if (my_ID == SINK ) {
-	printf("Sink propagates gradients\n");
-	My_Rank=0;    
-	
-	// Delay
-	static struct etimer et; 
-	etimer_set(&et, CLOCK_SECOND*2);
-	PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&et));
-	
-	PRINTF("[GRAD] Sink %d.%d launch the gradient construction sequence\n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1]);
-	send_gradient();
+		printf("Sink propagates gradients\n");
+		My_Rank=0;
+
+		// Delay
+		static struct etimer et;
+		etimer_set(&et, CLOCK_SECOND*2);
+		PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&et));
+
+		PRINTF("[GRAD] Sink %d.%d launch the gradient construction sequence\n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1]);
+		send_gradient();
       
     } else if (my_ID==STATIC){     // Static Nodes
-	  unsigned int cnt = random_rand() ;
-    
-	  cnt %= FIX_CBR_RATE ;  //:) Lathos
-	  cnt++;
-	  ctimer_set(&timerCBR, CLOCK_SECOND *(GRAND_DELAY +cnt), emit_data, NULL);
+		  unsigned int cnt = random_rand() ;
+
+		  cnt %= FIX_CBR_RATE ;
+		  cnt++;
+		  ctimer_set(&timerCBR, CLOCK_SECOND *(GRAND_DELAY +cnt), emit_data, NULL);
 	  
-    }else if (my_ID == MOBILE) {
+    }else if (my_ID == MOBILE) {  // Mobile Nodes
 	
 	  My_Rank=100;
-	  fatherID =0;						// !!!
+	  fatherID =0;
 	  
 	  ctimer_set(&timerCBR, CLOCK_SECOND *(GRAND_DELAY), my_random, NULL);
 	 
@@ -189,7 +183,6 @@ PROCESS_THREAD(example_gradient_routing, ev, data)
 		//Wait here for an event to happen
 		PROCESS_WAIT_EVENT();
 				
-
 		// and loop
 	}
 
@@ -204,16 +197,12 @@ void my_random() {
       cnt %= 15 ;
       cnt++;
  
-      printf("Retransmisions %d \n",retrans);
-      printf ("Mobile Emit %d   %d \n",cnt,cnt+(rimeaddr_node_addr.u8[0]-1)*15);
+      //printf ("Mobile Emit %d   %d \n",cnt,cnt+(rimeaddr_node_addr.u8[0]-1)*15);
       ctimer_set(&timerCBR, CLOCK_SECOND *(cnt+(rimeaddr_node_addr.u8[0]-1)*15), emit_data, NULL);
       
   
 }
 
-
-// Synarthsh ston sender meta apo thn apostolh mallon
-// ti kanoyme ean den to lavoyme k.o
 static void packet_sent(void *ptr, int status, int transmissions)
 {
 char *packet;	
@@ -222,13 +211,13 @@ char *packet;
 	
 	if (my_ID==MOBILE)	{
 	  retrans=retrans+transmissions;
-	  if (seq_no==128) {
-	    printf("My Retransmisions %d \n",retrans);
-	  }
 	}
 	packet = (char *)packetbuf_dataptr();
 	
 }
+
+
+// Characterize Node Role (Mobile, Sink, Static)
 
 static int ID() {
 int m_id=STATIC;
@@ -240,16 +229,14 @@ int m_id=STATIC;
       }else if (rimeaddr_node_addr.u8[0]> NUM_MOBILE && rimeaddr_node_addr.u8[0]<= NUM_SINK+NUM_MOBILE) {
 	  m_id=SINK;
       }
-       
-  
-      
+
       return m_id;
 }
 
 static void sending_packet(uint8_t p_type,uint8_t addr0,uint8_t addr1, uint8_t data1,uint8_t data2, int tp, rimeaddr_t rcv)
 {
 
-      // packet prepare
+   // packet prepare
 	packetbuf_clear();
 	frame[0] = p_type;
 	frame[1] = addr0;    
@@ -265,7 +252,7 @@ static void sending_packet(uint8_t p_type,uint8_t addr0,uint8_t addr1, uint8_t d
 	
 	if (tp==ANYCAST) {
 	    rimeaddr_t receiver;
-	    receiver.u8[0] = 99;
+	    receiver.u8[0] = ANY_ADDR;
 	    receiver.u8[1] = 0;
 	    
 	    packetbuf_set_addr(PACKETBUF_ADDR_RECEIVER, &receiver);
@@ -275,7 +262,7 @@ static void sending_packet(uint8_t p_type,uint8_t addr0,uint8_t addr1, uint8_t d
 	
 	packetbuf_set_addr(PACKETBUF_ADDR_SENDER, &rimeaddr_node_addr);
 	if (tp==UNICAST) {
-	    packetbuf_set_addr(PACKETBUF_ADDR_RECEIVER, &rcv); //rimeaddr_t addr
+	    packetbuf_set_addr(PACKETBUF_ADDR_RECEIVER, &rcv); //Unicast
 	    NETSTACK_MAC.send(packet_sent, &rcv);
 	}else if (tp==BROADCAST){
 	    NETSTACK_MAC.send(packet_sent, NULL);  // broadcast
@@ -283,17 +270,17 @@ static void sending_packet(uint8_t p_type,uint8_t addr0,uint8_t addr1, uint8_t d
 	    
   
 }
+// Construction of Gradient Routing Tree
+
 void send_gradient() {
    rimeaddr_t receiver;
  
-    //PRINTF("BroadCasting ------------------\n");  
-   
-    // delay
    PRINTF("[GRAD] %d.%d propagates its rank %d\n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1], My_Rank);
-    sending_packet(NOTIFGRAD,rimeaddr_node_addr.u8[0],rimeaddr_node_addr.u8[1], My_Rank,0,BROADCAST,receiver); 
+   sending_packet(NOTIFGRAD,rimeaddr_node_addr.u8[0],rimeaddr_node_addr.u8[1], My_Rank,0,BROADCAST,receiver);
   
 }
 
+// Packet generation function
 void emit_data() {
 rimeaddr_t receiver;
   
@@ -331,11 +318,7 @@ rimeaddr_t receiver;
 	      }      
 		    
 	} else {
-	  
-	   							// Na dw pws tha to k;anv burst
-		  printf("Sending Burst %d  counter %d \n",seq_no+1,burst_counter);
-		      
-		  
+
 		  int i=0 ;					// burst
 		  for (i=0;i<BURST_SIZE ; ++i) {
 		   
@@ -349,17 +332,17 @@ rimeaddr_t receiver;
 			printf ("EMT %d %d %d %d\n",rimeaddr_node_addr.u8[0], 99,rimeaddr_node_addr.u8[0], seq_no);
 			sending_packet(DATA,rimeaddr_node_addr.u8[0],rimeaddr_node_addr.u8[1], seq1,seq2,ANYCAST,receiver);
 		    
-		      ++burst_counter;
+		     ++burst_counter;
 		    
 	   }
-	//  printf("Retransmisions %d \n",retrans);
+
 	}
 	
 	     
 }
 
 
-// ekteleitai ston receiver 
+// Forwarding the incoming packet to the father node
 
 static void forward_msg(void *p) {
 rimeaddr_t receiver;
@@ -367,7 +350,7 @@ char *packet;
  	
 	
 	receiver.u8[0] = fatherID;
-	receiver.u8[1] = 0;									// Na dw pws tha to k;anv burst
+	receiver.u8[1] = 0;
 
 	packet =(char *)p;
 	
@@ -376,10 +359,11 @@ char *packet;
 	unsigned int seq =s2*256+s1;
 	unsigned int k1,k2;
 	
-	 sending_packet(DATA,packet[1],packet[2],packet[3],packet[4],cast_type,receiver); 
+	sending_packet(DATA,packet[1],packet[2],packet[3],packet[4],cast_type,receiver);
 	
 }
 
+// Processing the incoming packets
 static void input(void)
 {
 
@@ -394,29 +378,23 @@ static void input(void)
 	
 	static unsigned int counter = 0;
 	
-	if (my_ID != MOBILE) {
+	if (my_ID != MOBILE) {             // Only static nodes participate in the construction of the routing tree
 		  if (packet[0]==NOTIFGRAD ) {
-		  //  printf("Receiving grand \n");
-		    
 		    int rcv_rank=(int)packet[3];
 		  
 		    if (rcv_rank+1 < My_Rank ) {
 			My_Rank =rcv_rank+1;
 			fatherID = from.u8[0];  // Updates fatherID
 			
-			//printf("%d\n",fatherID);						
-			
 			counter = random_rand();
 			counter %= 60;
 			counter += 1;
 
-			//Will propagate gradient after a random time
+			//Node propagate's gradient after a random time
 			PRINTF("[GRAD] Node %d.%d takes rank %d in the gradient (from %d.%d)\n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1], My_Rank, from.u8[0], from.u8[1]);
 			printf(" RANK %d\n",My_Rank);
 			ctimer_set(&timerGRADACK, CLOCK_SECOND * (counter)/2, send_gradient, NULL);
 			
-		      
-
 		    }
 		  } else if (packet[0]==DATA || packet[0]==PROBE) {
 			
@@ -425,25 +403,22 @@ static void input(void)
 			unsigned int seq =s2*256+s1;
 			
 			    if (my_ID!=SINK) {
-				//PRINTF("[CBR-RX] Node %d [%d] got data from %d (seq=%d) via %d  father ID %d\n", rimeaddr_node_addr.u8[0], 1, packet[1], seq, from.u8[0],fatherID);
+
+					if (packet[0]==PROBE) {
+					   printf("PRB %d %d %d %d \n",from.u8[0],rimeaddr_node_addr.u8[0], packet[1],seq);
+
+					}else {
+					  printf("RCV %d %d %d %d %d\n",from.u8[0],rimeaddr_node_addr.u8[0], packet[1],seq,fatherID);
+					  forward_msg(packet);
+					}
 				
-				if (packet[0]==PROBE) {
-				   printf("PRB %d %d %d %d \n",from.u8[0],rimeaddr_node_addr.u8[0], packet[1],seq); 
-				  
-				}else {
-				  printf("RCV %d %d %d %d %d\n",from.u8[0],rimeaddr_node_addr.u8[0], packet[1],seq,fatherID);
-				  forward_msg(packet);
-				}
-				
-				
-				
-			    }else {
+			    }else {  // Sink
 			 
-			      if (packet[0]==PROBE) {
-				printf("PRB %d %d %d %d \n",from.u8[0],rimeaddr_node_addr.u8[0], packet[1],seq);
-			      } else {
-				printf("SNK %d %d %d %d %d\n",from.u8[0],rimeaddr_node_addr.u8[0],packet[1],seq,++rcv);
-			      }
+					  if (packet[0]==PROBE) {
+						  printf("PRB %d %d %d %d \n",from.u8[0],rimeaddr_node_addr.u8[0], packet[1],seq);
+					  } else {
+						  printf("SNK %d %d %d %d %d\n",from.u8[0],rimeaddr_node_addr.u8[0],packet[1],seq,++rcv);
+					  }
 			   }
 			    
 		  
@@ -451,10 +426,10 @@ static void input(void)
 	}
 	else {
 	  if (first==0) {
-	  long int m, k=rtimer_arch_now();
+		  long int m, k=rtimer_arch_now();
 	
-	   random_init(k);
-	    ++first;
+		  random_init(k);
+		  ++first;
 	  }
 	  
 	}
@@ -466,16 +441,12 @@ static void input(void)
 
 PROCESS_THREAD(nrj_process, ev, data)
 {
-    //stop-start ongoing time measurements to retrieve the diffs
-    //ENERGEST_OFF(ENERGEST_TYPE_CPU);
-    //ENERGEST_ON(ENERGEST_TYPE_CPU);
-    
     static struct etimer et;
     
     PROCESS_BEGIN();
     
     etimer_set(&et, NRJ_SAMPLE*CLOCK_SECOND);
-  //  printf(" ------------------------------------------\n");
+
     double voltage = 3;
     double power_cpu = 1.8 * voltage; //mW
     double power_lpm = 0.0545 * voltage; //mW
@@ -510,7 +481,7 @@ PROCESS_THREAD(nrj_process, ev, data)
         nrj_tab.tx = energest_type_time(ENERGEST_TYPE_TRANSMIT);
         nrj_tab.rx = energest_type_time(ENERGEST_TYPE_LISTEN);
         
-    //printf("[NRJ_TIME];%d.%d;CPU;%ld;%ld;LPM;%ld;%ld;TX;%ld;%ld;RX;%ld;%ld \n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1], nrj_tab.cpu, nrj_dif.cpu, nrj_tab.lpm, nrj_dif.lpm, nrj_tab.tx, nrj_dif.tx, nrj_tab.rx, nrj_dif.rx);
+
         
         //Calculate NRJ consumption
         //Power = (timer / ticks_per_sec) * power / Update_time
@@ -519,15 +490,9 @@ PROCESS_THREAD(nrj_process, ev, data)
         powerLPM = ((double)nrj_dif.lpm / 4096) * power_lpm / NRJ_SAMPLE; //mW
         powerTX = ((double)nrj_dif.tx / 4096) * power_tx / NRJ_SAMPLE;
         powerRX = ((double)nrj_dif.rx / 4096) * power_rx / NRJ_SAMPLE;
-	
-
-	//powerCPU=k;
-	//printf(" Power CPU %ld \n",powerCPU);
-        
 
 	
-	//printf("[NRJ_MW];%d.%d;CPU;%ld;LPM;%ld;TX;%ld;RX;%ld;\n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1], nrj_dif.cpu * 100, nrj_dif.lpm * 100,nrj_dif.tx * 100, nrj_dif.rx * 100);
-	printf("[NRJ_MW];%d.%d;CPU;%ld;LPM;%ld;TX;%ld;RX;%ld;\n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1], (long)(powerCPU * 100), (long)(powerLPM * 100), (long)(powerTX * 100), (long)(powerRX * 100));
+        printf("[NRJ_MW];%d.%d;CPU;%ld;LPM;%ld;TX;%ld;RX;%ld;\n", rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1], (long)(powerCPU * 100), (long)(powerLPM * 100), (long)(powerTX * 100), (long)(powerRX * 100));
         
         etimer_reset(&et);
     }
@@ -536,8 +501,8 @@ PROCESS_THREAD(nrj_process, ev, data)
 }
 static void init(void)
 {
-	printf("Anycast ver 3.0 \n");
-	printf("Mobile Nodes %d BurstSize %d PacketNum %d CBR %d FIX_CBR_RATE %d,Power %d NRJ %d \n", NUM_MOBILE, BURST_SIZE, MAX_PACKETS, CBR_RATE,FIX_CBR_RATE,  11, NRJ_SAMPLE);
+	printf("ME-ContikiMAC \n");
+	printf("Mobile Nodes %d BurstSize %d PacketNum %d CBR %d FIX_CBR_RATE %d,Power %d NRJ %d \n", NUM_MOBILE, BURST_SIZE, MAX_PACKETS, CBR_RATE,FIX_CBR_RATE,  TX_POWER, NRJ_SAMPLE);
 }
 
 const struct network_driver my_driver = {
