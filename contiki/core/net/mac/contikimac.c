@@ -426,7 +426,7 @@ powercycle(struct rtimer *t, void *ptr)
 #endif
 
     packet_seen = 0;
-reset_AnyBroadCast();
+
 
     for(count = 0; count < CCA_COUNT_MAX; ++count) {
       t0 = RTIMER_NOW();
